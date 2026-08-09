@@ -815,6 +815,8 @@ const WALK=6.0, SPRINT=9.4, CROUCH=3.4, SLIDE_BOOST=13, STEP=0.75;
 const keys={};
 function preventKey(e){ if(['KeyW','KeyA','KeyS','KeyD','Space','ShiftLeft','ShiftRight','ControlLeft','KeyC','KeyR'].includes(e.code)) e.preventDefault(); }
 window.addEventListener('keydown',e=>{
+  const ae=document.activeElement;
+  if(ae&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA'||ae.isContentEditable))return;
   keys[e.code]=true;
   if(e.code==='Space'&&!e.repeat){ jumpQueued=0.15; }
   if(e.code==='KeyR'&&!e.repeat) reload();
@@ -2245,7 +2247,7 @@ function mpClipPaste(){
     },noClipRead);
   }else noClipRead();
 }/* ============ minimal MQTT client (MQTT 3.1.1, signaling only) ============ */
-const MQ_URL='wss://broker.hivemq.com:8884/mqtt';
+const MQ_URL='wss://broker.emqx.io:8084/mqtt';
 function mqLen(n){const b=[];let d;do{d=n%128;n=Math.floor(n/128);if(n>0)d|=128;b.push(d);}while(n>0);return b;}
 function mqVar(b,o){let v=0,m=1,i=0,d;do{d=b[o+i];v+=(d&127)*m;m*=128;i++;}while((d&128)&&i<4);return {v:v,i:i};}
 function mqStr(b,a,z){let s='';for(let i=a;i<z;i++)s+=String.fromCharCode(b[i]);return s;}
@@ -2434,7 +2436,7 @@ function mpEnableRelay(why){
 function mpWatchPC(pc){
   if(!pc||!pc.addEventListener)return;
   try{
-    pc.addEventListener('connectionstatechange',function(){if(pc.connectionState==='failed'||pc.connectionState==='disconnected')mpEnableRelay();});
+    pc.addEventListener('connectionstatechange',function(){if(pc.connectionState==='failed')mpEnableRelay();});
   }catch(e){}
   try{
     pc.oniceconnectionstatechange=function(){if(pc.iceConnectionState==='failed')mpEnableRelay();};
@@ -2598,7 +2600,7 @@ function mpExit(reason){
 /* ============ signaling orchestration ============ */
 /* Server mode: if the page is served over http(s) we use OUR OWN /ws relay on the same origin.
    When opened locally (file://) we fall back to the free public MQTT broker. */
-const SG_ENABLED=(typeof location!=='undefined')&&/^https?:/.test(location.protocol)&&!!location.host;
+const SG_ENABLED=(typeof location!=='undefined')&&/^https?:/.test(location.protocol)&&!!location.host&&!/\.github\.io$|\.netlify\.app$|\.vercel\.app$/.test(location.hostname||'');
 const SG_URL=(SG_ENABLED?((location.protocol==='https:'?'wss://':'ws://')+location.host):'');
 function mpLoadIce(){
   if(!SG_ENABLED)return;
