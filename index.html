@@ -2257,7 +2257,7 @@ function Mq(c){
   this.out='opmduel/'+c.room+'/'+(c.dir==='h2g'?'g2h':'h2g');
   this.in='opmduel/'+c.room+'/'+c.dir;
   const self=this;
-  this.ws=new WebSocket(MQ_URL);this.ws.binaryType='arraybuffer';
+  this.ws=new WebSocket(MQ_URL,'mqtt');this.ws.binaryType='arraybuffer';
   this.ws.onopen=function(){self.open();};
   this.ws.onmessage=function(ev){self.digest(new Uint8Array(ev.data));};
   this.ws.onclose=function(){self.bye&&self.bye();};
