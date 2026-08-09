@@ -2064,7 +2064,7 @@ function gameOver(){
   gameoverEl.classList.remove('hidden');
   sounds.die();
 }
-function lock(){ renderer.domElement.requestPointerLock(); }
+function lock(){ try{ renderer.domElement.requestPointerLock(); }catch(e){} }
 
 startBtn.addEventListener('click',startGame);
 restartBtn.addEventListener('click',startGame);
@@ -2217,7 +2217,7 @@ const mpTitl=mpId('mptitle'),mpStatus=mpId('mpstatus'),mpPanel=mpId('mppanel'),
       mpCodeEl=mpId('mpcode'),mpCopyBtn=mpId('mpcopy'),mpJoinInput=mpId('mpjoin'),
       mpPasteBtn=mpId('mppaste'),mpJoinBtn2=mpId('mpjoinbtn'),mpBeginBtn=mpId('mpbegin'),
       mpBackBtn=mpId('mpback');
-let MP={on:false,role:null,pc:null,evC:null,stC:null,peer:null,dead:false,deadT:0,killsMp:0,state:'idle',myName:'',hiSent:false,_1:0,_2:0,_last:-1,rttMs:0,room:null,mq:null,made:false,ice:null,sgFailed:false,retries:0};
+let MP={on:false,role:null,pc:null,evC:null,stC:null,peer:null,dead:false,deadT:0,killsMp:0,state:'idle',myName:'',hiSent:false,_1:0,_2:0,_last:-1,rttMs:0,room:null,mq:null,made:false,ice:null,sgFailed:false,retries:0,relay:false,_firstHello:0,_rlast:0};
 function mpStat(t){if(mpStatus)mpStatus.textContent=t;}
 /* ============ room codes + clipboard ============ */
 const MP_CHARS='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -2404,13 +2404,46 @@ function mpEvt(ev){
 }
 function mpSnap(ev){const r=String(ev.data);if(r[0]==='S')mpParseState(r);}
 function sendE(t,o){
-  if(!MP.evC||MP.evC.readyState!=='open')return;
   const q={t:t};if(o)for(const k in o)q[k]=o[k];
-  try{MP.evC.send(JSON.stringify(q));}catch(e){}
+  if(MP.evC&&MP.evC.readyState==='open'){
+    try{MP.evC.send(JSON.stringify(q));}catch(e){}
+  }else if(MP.relay){
+    mpRelayEvt(q);
+  }
+}
+function mpRelayEvt(q){
+  if(!MP.mq||!MP.mq.publish)return;
+  MP.mq.publish({t:'ev',e:q},false);
+}
+function mpRelaySt(a){
+  if(!MP.mq||!MP.mq.publish)return;
+  MP.mq.publish({t:'st',a:a},false);
+}
+function mpEnsureHi(){
+  if(MP.hiSent)return;
+  if(MP.evC&&MP.evC.readyState==='open'){mpReady();return;}
+  if(MP.relay){MP.hiSent=true;mpRelayEvt({t:'hi',id:MP.myName});}
+}
+function mpEnableRelay(why){
+  if(MP.relay)return;MP.relay=true;
+  mpStat('P2P BLOCKED — ROUTING THROUGH GAME SERVER…');
+  MP.pc&&MP.pc.close&&(function(){try{MP.pc.close();}catch(e){}})();
+  MP.pc=null;MP.made=false;
+  mpEnsureHi();
+}
+function mpWatchPC(pc){
+  if(!pc||!pc.addEventListener)return;
+  try{
+    pc.addEventListener('connectionstatechange',function(){if(pc.connectionState==='failed'||pc.connectionState==='disconnected')mpEnableRelay();});
+  }catch(e){}
+  try{
+    pc.oniceconnectionstatechange=function(){if(pc.iceConnectionState==='failed')mpEnableRelay();};
+  }catch(e){}
 }
 function mpReady(){
   if(MP.hiSent)return;MP.hiSent=true;
-  sendE('hi',{id:MP.myName});
+  if(MP.evC&&MP.evC.readyState==='open')sendE('hi',{id:MP.myName});
+  else if(MP.relay)sendE('hi',{id:MP.myName});
 }
 function mpParseState(r){
   let d;try{d=JSON.parse(r.slice(1));}catch(e){return;}
@@ -2418,11 +2451,14 @@ function mpParseState(r){
   P.tx.set(d[0],d[1],d[2]);P.pyz=d[3];P.pitchT=d[4];
 }
 function mpSendState(){
-  if(!MP.stC||MP.stC.readyState!=='open')return;
-  MP._1=performance.now();
   const a=[Math.round(player.pos.x*100)/100,Math.round(player.pos.y*100)/100,Math.round(player.pos.z*100)/100,
       Math.round(player.yaw*1000)/1000,Math.round(player.pitch*1000)/1000];
-  try{MP.stC.send('S'+JSON.stringify(a));}catch(e){}
+  if(MP.stC&&MP.stC.readyState==='open'){
+    try{MP.stC.send('S'+JSON.stringify(a));}catch(e){}
+  }else if(MP.relay){
+    const now=performance.now();
+    if(now-(MP._rlast||0)>=60){MP._rlast=now;mpRelaySt(a);}
+  }
 }
 /* ============ combat ============ */
 function mpOnShot(shot){
@@ -2542,6 +2578,8 @@ function mpLose(){
 }
 function mpExit(reason){
   clearInterval(MP.hiIv);
+  if(mpWatch){clearInterval(mpWatch);mpWatch=null;}
+  MP.relay=false;MP._firstHello=0;MP._rlast=0;
   try{if(MP.mq&&MP.mq.ws){MP.mq.ws.onclose=null;MP.mq.ws.close();}}catch(e){}
   MP.mq=null;
   try{if(MP.pc)MP.pc.close();}catch(e){}
@@ -2599,11 +2637,25 @@ Sg.prototype.close=function(){try{if(this.ws)this.ws.close();}catch(e){}};
 function mpOpenMq(){
   if(MP.state==='live')return;
   MP.state='mq';
+  if(!MP._firstHello)MP._firstHello=performance.now();
   if(MP.role==='host'){mpStat('ROOM '+MP.room+' READY — SEND IT TO YOUR FRIEND');}
   else {mpStat('JOINED ROOM '+MP.room+' — WAITING FOR HOST');}
   MP.mq.publish({t:'hello'},true);
   clearInterval(MP.hiIv);
   MP.hiIv=setInterval(function(){if(MP.mq&&(MP.state==='mq'||MP.state==='ready'))MP.mq.publish({t:'hello'},true);},4000);
+  mpWatchDirect();
+}
+let mpWatch=null;
+function mpWatchDirect(){
+  if(mpWatch){clearInterval(mpWatch);mpWatch=null;}
+  mpWatch=setInterval(function(){
+    if(!MP.role||MP.state==='idle'){clearInterval(mpWatch);mpWatch=null;return;}
+    const directOpen=!!(MP.evC&&MP.evC.readyState==='open');
+    if(directOpen||MP.relay){clearInterval(mpWatch);mpWatch=null;return;}
+    if(MP.state==='live'){mpEnableRelay('P2P DOWN');clearInterval(mpWatch);mpWatch=null;return;}
+    if(!(MP._firstHello||0))return;
+    if(performance.now()-MP._firstHello>=10000){mpEnableRelay('TIMEOUT');}
+  },2500);
 }
 function mqConnect(){
   mpLoadIce();
@@ -2636,8 +2688,13 @@ function mpRetryMq(why){
   setTimeout(function(){if(MP.role)mqConnect();},200);
 }
 function mqHandle(o){
-  if(!o||!o.t||MP.state==='live')return;
+  if(!o||!o.t)return;
+  if(o.t==='ev'){if(o.e)mpEvt({data:JSON.stringify(o.e)});return;}
+  if(o.t==='st'){if(o.a)mpParseState('S'+JSON.stringify(o.a));return;}
+  if(MP.state==='live')return;
   if(o.t==='hello'){
+    if(!MP._firstHello)MP._firstHello=performance.now();
+    mpEnsureHi();
     if(MP.role==='host'&&!MP.made){mpHostOffer();}
   }else if(o.t==='offer'){
     if(MP.role==='guest'&&!MP.made){mpGuestAnswer(o.s,o.c);}
@@ -2648,7 +2705,7 @@ function mqHandle(o){
 function mpHostOffer(){
   MP.made=true;
   mpStat('SETTING UP DIRECT P2P LINK…');
-  const pc=MP.pc=mpMakePC();
+const pc=MP.pc=mpMakePC();mpWatchPC(pc);
   const e=pc.createDataChannel('e',{ordered:true});
   const s=pc.createDataChannel('s',{ordered:false,maxRetransmits:0});
   e.onopen=function(){MP.evC=e;mpReady();};
@@ -2672,7 +2729,7 @@ function mpGuestAnswer(os,oc){
   if(!os){mpStat('BAD OFFER — RETRY');return;}
   MP.made=true;
   mpStat('HANDSHAKE…');
-  const pc=MP.pc=mpMakePC();
+const pc=MP.pc=mpMakePC();mpWatchPC(pc);
   pc.ondatachannel=function(ev){
     const ch=ev.channel;
     if(ch.label==='e'){MP.evC=ch;ch.onmessage=mpEvt;ch.onopen=function(){mpReady();};}
@@ -2691,8 +2748,10 @@ function mpOpen(role){
   if(!MP_RT_OK){mpStat('WEBRTC NOT SUPPORTED IN THIS BROWSER');return;}
   if(MP.state==='live')return;
   try{if(MP.mq&&MP.mq.ws){MP.mq.ws.onclose=null;MP.mq.ws.close();}}catch(e){}
-  MP.mq=null;
+MP.mq=null;
   MP.role=role;MP.state='idle';MP.hiSent=false;MP.on=false;MP.made=false;MP.killsMp=0;MP.retries=0;
+  MP.relay=false;MP._firstHello=0;MP._rlast=0;
+  if(mpWatch){clearInterval(mpWatch);mpWatch=null;}
   if(MP.peer&&MP.peer.g){scene.remove(MP.peer.g);}MP.peer=null;
   mpPanel.classList.remove('hidden');
   menuEl.classList.add('hidden');

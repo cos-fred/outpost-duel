@@ -58,6 +58,8 @@ function iceServers() {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
+    // last-resort public TURN (best effort): gets you through mobile / symmetric NAT when STUN can't.
+    { urls: ['turn:openrelay.metered.ca:80?transport=udp', 'turn:openrelay.metered.ca:80?transport=tcp', 'turn:openrelay.metered.ca:443?transport=tcp'], username: 'openrelayproject', credential: 'openrelayproject' },
   ];
   if (TURN_URLS.length) {
     const turn = { urls: TURN_URLS };
