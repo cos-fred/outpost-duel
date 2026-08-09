@@ -70,7 +70,12 @@
   #lowhp { position:absolute; inset:0; opacity:0; background:radial-gradient(ellipse at center, transparent 52%, rgba(160,0,0,.75) 100%); transition:opacity .2s; }
   #damageflash { position:absolute; inset:0; opacity:0; background:radial-gradient(ellipse at center, transparent 25%, rgba(255,40,0,.6) 100%); }
   #slashfx { position:absolute; left:50%; top:50%; width:340px; height:340px; transform:translate(-50%,-50%) rotate(-30deg); opacity:0; pointer-events:none; }
-  #pausemsg { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(4,8,16,.6); z-index:40; color:#e8f1ff; font-size:22px; letter-spacing:5px; cursor:pointer; }
+#pausemsg { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(4,8,16,.72); z-index:40; color:#e8f1ff; font-size:22px; letter-spacing:5px; cursor:pointer; }
+  #pausemsg .ptitle { font-size:30px; letter-spacing:10px; color:#9ad8ff; text-shadow:0 0 24px rgba(80,180,255,.45); }
+  #pausemsg .pauserow { display:flex; gap:14px; margin-top:24px; cursor:default; }
+  #pausemsg .pauserow .btn { margin-top:0; letter-spacing:2px; font-size:14px; }
+  #pausemsg .pauserow .btn.ghost { background:transparent; border:1px solid #4a6a8a; box-shadow:none; }
+  #pausemsg .pauserow .btn.ghost:hover { background:#132d42; border-color:#7fb8e8; }
   #pausemsg small { font-size:13px; color:#9fb6d9; margin-top:14px; letter-spacing:2px; }
   #menu .mprow2 { display:flex; gap:16px; }
   #menu .mpb { margin-top:18px; padding:13px 26px; font-size:14px; background:transparent; border:1px solid #4a6a8a; box-shadow:none; color:#cfe6ff; }
@@ -142,7 +147,15 @@
   <div id="subbanner"></div>
 </div>
 
-<div id="pausemsg" class="hidden">PAUSED — CLICK TO RESUME<small>[M] MUTE AUDIO</small></div>
+<div id="pausemsg" class="hidden">
+  <div class="ptitle">PAUSED</div>
+  <div class="pauserow">
+    <button class="btn" id="pauseres">Resume</button>
+    <button class="btn" id="pauserestart">Restart</button>
+    <button class="btn ghost" id="pausemenu">Main Menu</button>
+  </div>
+  <small>[M] MUTE AUDIO · ESC TO RESUME</small>
+</div>
 
 <div id="menu" class="overlay">
   <h1>OUTPOST OMEGA<small>KILL-LINKED ARSENAL // 9 WEAPONS</small></h1>
@@ -193,6 +206,7 @@
     </div>
 <div class="mpex">Get the 5-letter code from the host's screen (or from them via chat), then press Join.</div>
   </div>
+  <div class="mpex" id="mpurl">Both players must open the exact same page.</div>
   <button class="btn" id="mpbegin" style="display:none">Launch Duel</button>
   <button class="btn ghost" id="mpback">Back</button>
   <div class="mstatus" id="mpstatus">WAITING…</div>
@@ -2055,6 +2069,43 @@ function lock(){ renderer.domElement.requestPointerLock(); }
 startBtn.addEventListener('click',startGame);
 restartBtn.addEventListener('click',startGame);
 
+const pauseResBtn=document.getElementById('pauseres'),
+      pauseRestartBtn=document.getElementById('pauserestart'),
+      pauseMenuBtn=document.getElementById('pausemenu');
+pauseResBtn.addEventListener('click',function(e){e.stopPropagation();lock();});
+pauseRestartBtn.addEventListener('click',function(e){e.stopPropagation();mpPauseRestart();});
+pauseMenuBtn.addEventListener('click',function(e){e.stopPropagation();pauseToMenu();});
+function mpPauseRestart(){
+  if(MP.state==='live'){sendE('rst',{});mpToLobby();}
+  else startGame();
+}
+function pauseToMenu(){
+  if(MP.role){mpExit('RETURNED TO MENU');return;}
+  toMainMenu();
+}
+function toMainMenu(){
+  try{document.exitPointerLock();}catch(e){}
+  started=false;gameoverShown=false;firing=false;aiming=false;
+  setWeaponVisible(false);
+  hud.classList.add('hidden');
+  pauseMsg.classList.add('hidden');
+  pauseMsg.classList.add('hidden');
+  gameoverEl.classList.add('hidden');
+  menuEl.classList.remove('hidden');
+}
+function mpToLobby(){
+  MP.state='ready';MP.on=false;MP.dead=false;MP.deadT=0;MP.killsMp=0;
+  player.hp=player.maxHp;updateHud();
+  started=false;gameoverShown=false;firing=false;aiming=false;
+  setWeaponVisible(false);
+  hud.classList.add('hidden');
+  pauseMsg.classList.add('hidden');
+  mpPanel.classList.remove('hidden');
+  try{document.exitPointerLock();}catch(e){}
+  mpStat('MATCH RESET — PRESS LAUNCH DUEL');
+  if(mpBeginBtn)mpBeginBtn.style.display='inline-block';
+}
+
 document.addEventListener('pointerlockchange',function(){
   pointerActive=document.pointerLockElement===renderer.domElement;
   if(pointerActive){
@@ -2063,7 +2114,8 @@ document.addEventListener('pointerlockchange',function(){
     if(started&&!gameoverShown) pauseMsg.classList.remove('hidden');
   }
 });
-document.addEventListener('click',function(){
+document.addEventListener('click',function(e){
+  if(e.target.closest('button'))return;
   if(started&&!gameoverShown&&!pointerActive) lock();
 });
 window.addEventListener('blur',function(){
@@ -2337,6 +2389,7 @@ function mpEvt(ev){
       if(mpBeginBtn){mpBeginBtn.style.display='inline-block';}
       break;
     case 'go':mpStartMatch();break;
+    case 'rst':mpToLobby();break;
     case 'ping':sendE('pong',{t:m.t});break;
     case 'pong':MP.rttMs=Math.max(1,Math.round((performance.now()-m.t)/2));break;
     case 'hit':mpApplyHit(m.d,m.h);break;
@@ -2572,10 +2625,8 @@ function mqConnect(){
 }
 function mpRetryMq(why){
   const w=String(why||'').toUpperCase();
-  if(/ROOM ALREADY FULL/.test(w)||/BAD_ROOM/.test(w)){
-    mpStat(/ROOM ALREADY FULL/.test(w)?'ROOM ALREADY FULL — PICK ANOTHER CODE':'INVALID ROOM CODE — CHECK THE LETTERS');
-    return;
-  }
+  if(/ROOM ALREADY FULL/.test(w)){mpStat('ROOM ALREADY FULL — PICK ANOTHER CODE');return;}
+  if(/BAD_ROOM/.test(w)){mpStat('CODE REJECTED — USE THE EXACT SAME URL AS THE HOST & RE-CHECK THE CODE');return;}
   if(MP.retries>=1){mpStat(why?('SIGNAL '+why+' — CLICK BACK & RETRY'):'SIGNAL UNAVAILABLE — CLICK BACK & RETRY');return;}
   MP.retries++;
   MP.sgFailed=true;
@@ -2665,10 +2716,19 @@ function hostStart(){
   mqConnect();
 }
 function guestJoin(){
-  if(MP.state!=='idle')return;
+  if(MP.state==='live')return;
   const c=mpCleanCode(mpJoinInput&&mpJoinInput.value);
-  if(c.length<4){mpStat('ENTER THE 5-LETTER CODE FROM THE HOST');return;}
+  if(!c){mpStat('TYPE OR PASTE THE 5-CHARS CODE FROM THE HOST');return;}
+  if(c.length<4){mpStat('CODES ARE 5 CHARS — RE-CHECK THE LETTERS');return;}
   MP.myName='GUEST';
+  if(MP.room===c&&(MP.state==='mq'||MP.state==='ready')){
+    mpStat(MP.state==='ready'?'MATCH READY — PRESS LAUNCH DUEL':'JOINED ROOM '+c+' — WAITING FOR HOST');
+    return;
+  }
+  if(MP.role==='guest'){
+    try{if(MP.mq&&MP.mq.ws){MP.mq.ws.onclose=null;MP.mq.ws.close();}}catch(e){}
+    MP.mq=null;MP.state='idle';MP.retries=0;MP.sgFailed=false;MP.hiSent=false;MP.made=false;
+  }
   MP.room=c;
   mpStat('JOINING ROOM '+c+'…');
   mqConnect();
@@ -2734,6 +2794,8 @@ if(mpPasteBtn)mpPasteBtn.addEventListener('click',mpClipPaste);
 if(mpJoinBtn2)mpJoinBtn2.addEventListener('click',guestJoin);
 if(mpBeginBtn)mpBeginBtn.addEventListener('click',mpBegin);
 if(mpBackBtn)mpBackBtn.addEventListener('click',function(){mpExit('RETURNED TO MENU');});
+const mpUrlEl=mpId('mpurl');
+if(mpUrlEl){mpUrlEl.textContent='BOTH PLAYERS MUST OPEN THIS EXACT SAME PAGE: '+(typeof location!=='undefined'&&location.href?location.href:'');}
 void 0;
 
 })();
