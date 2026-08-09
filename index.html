@@ -2219,8 +2219,9 @@ const mpTitl=mpId('mptitle'),mpStatus=mpId('mpstatus'),mpPanel=mpId('mppanel'),
       mpCodeEl=mpId('mpcode'),mpCopyBtn=mpId('mpcopy'),mpJoinInput=mpId('mpjoin'),
       mpPasteBtn=mpId('mppaste'),mpJoinBtn2=mpId('mpjoinbtn'),mpBeginBtn=mpId('mpbegin'),
       mpBackBtn=mpId('mpback');
-let MP={on:false,role:null,pc:null,evC:null,stC:null,peer:null,dead:false,deadT:0,killsMp:0,state:'idle',myName:'',hiSent:false,_1:0,_2:0,_last:-1,rttMs:0,room:null,mq:null,made:false,ice:null,sgFailed:false,retries:0,relay:false,_firstHello:0,_rlast:0};
+let MP={on:false,role:null,pc:null,evC:null,stC:null,peer:null,dead:false,deadT:0,killsMp:0,state:'idle',myName:'',hiSent:false,_1:0,_2:0,_last:-1,rttMs:0,room:null,mq:null,made:false,ice:null,sgFailed:false,retries:0,relay:false,_firstHello:0,_rlast:0,_peerSeen:0};
 function mpStat(t){if(mpStatus)mpStatus.textContent=t;}
+function mpDbg(what,extra){try{if(typeof console!=='undefined'&&console.info)console.info('[OD]',what,extra||'');}catch(e){}}
 /* ============ room codes + clipboard ============ */
 const MP_CHARS='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 function mpMakeCode(){let s='';for(let i=0;i<5;i++)s+=MP_CHARS[Math.floor(Math.random()*MP_CHARS.length)];return s;}
@@ -2427,7 +2428,7 @@ function mpEnsureHi(){
   if(MP.relay){MP.hiSent=true;mpRelayEvt({t:'hi',id:MP.myName});}
 }
 function mpEnableRelay(why){
-  if(MP.relay)return;MP.relay=true;
+  if(MP.relay)return;MP.relay=true;mpDbg('RELAY MODE: ON', why);
   mpStat('P2P BLOCKED — ROUTING THROUGH GAME SERVER…');
   MP.pc&&MP.pc.close&&(function(){try{MP.pc.close();}catch(e){}})();
   MP.pc=null;MP.made=false;
@@ -2581,7 +2582,7 @@ function mpLose(){
 function mpExit(reason){
   clearInterval(MP.hiIv);
   if(mpWatch){clearInterval(mpWatch);mpWatch=null;}
-  MP.relay=false;MP._firstHello=0;MP._rlast=0;
+  MP.relay=false;MP._peerSeen=0;MP._firstHello=0;MP._rlast=0;
   try{if(MP.mq&&MP.mq.ws){MP.mq.ws.onclose=null;MP.mq.ws.close();}}catch(e){}
   MP.mq=null;
   try{if(MP.pc)MP.pc.close();}catch(e){}
@@ -2639,7 +2640,6 @@ Sg.prototype.close=function(){try{if(this.ws)this.ws.close();}catch(e){}};
 function mpOpenMq(){
   if(MP.state==='live')return;
   MP.state='mq';
-  if(!MP._firstHello)MP._firstHello=performance.now();
   if(MP.role==='host'){mpStat('ROOM '+MP.room+' READY — SEND IT TO YOUR FRIEND');}
   else {mpStat('JOINED ROOM '+MP.room+' — WAITING FOR HOST');}
   MP.mq.publish({t:'hello'},true);
@@ -2655,20 +2655,22 @@ function mpWatchDirect(){
     const directOpen=!!(MP.evC&&MP.evC.readyState==='open');
     if(directOpen||MP.relay){clearInterval(mpWatch);mpWatch=null;return;}
     if(MP.state==='live'){mpEnableRelay('P2P DOWN');clearInterval(mpWatch);mpWatch=null;return;}
-    if(!(MP._firstHello||0))return;
-    if(performance.now()-MP._firstHello>=10000){mpEnableRelay('TIMEOUT');}
+    if(!(MP._peerSeen||0))return;
+    if(performance.now()-MP._peerSeen>=13000){mpEnableRelay('NO DIRECT LINK');}
   },2500);
 }
 function mqConnect(){
   mpLoadIce();
   if(MP.sgFailed||!SG_ENABLED){
+    mpDbg('RELAY: public broker (EMQX)');
     MP.mq=new Mq({room:MP.room,dir:MP.role==='host'?'g2h':'h2g'});
   }else{
+    mpDbg('RELAY: own server /ws', SG_URL);
     MP.mq=new Sg({room:MP.room,role:MP.role});
   }
   MP.mq.boot=mpOpenMq;
   MP.mq.onmsg=mqHandle;
-  MP.mq.onpeer=function(){if(MP.state==='mq'&&MP.role==='host')mpStat('ROOM '+MP.room+' — PLAYER JOINED, LINKING…');};
+  MP.mq.onpeer=function(){if(MP.state==='mq'&&MP.role==='host')mpStat('ROOM '+MP.room+' — PLAYER JOINED, LINKING…');mpDbg('EVENT: PEER PRESENT');};
   MP.mq.peerleft=function(){if(MP.state==='live')mpExit('OPPONENT DISCONNECTED');};
   MP.mq.err=function(why){if(MP.mq&&MP.mq.ready)return;mpRetryMq(why);};
   MP.mq.bye=function(){
@@ -2679,8 +2681,9 @@ function mqConnect(){
 }
 function mpRetryMq(why){
   const w=String(why||'').toUpperCase();
+  mpDbg('RELAY FAILED:', why||'CONNECTION CLOSED');
   if(/ROOM ALREADY FULL/.test(w)){mpStat('ROOM ALREADY FULL — PICK ANOTHER CODE');return;}
-  if(/BAD_ROOM/.test(w)){mpStat('CODE REJECTED — USE THE EXACT SAME URL AS THE HOST & RE-CHECK THE CODE');return;}
+  if(/BAD_ROOM/.test(w)){mpStat('CODE "'+(MP.room||'?')+'" REJECTED — USE THE SAME URL & CODE AS THE HOST and RE-CHECK');return;}
   if(MP.retries>=1){mpStat(why?('SIGNAL '+why+' — CLICK BACK & RETRY'):'SIGNAL UNAVAILABLE — CLICK BACK & RETRY');return;}
   MP.retries++;
   MP.sgFailed=true;
@@ -2695,7 +2698,7 @@ function mqHandle(o){
   if(o.t==='st'){if(o.a)mpParseState('S'+JSON.stringify(o.a));return;}
   if(MP.state==='live')return;
   if(o.t==='hello'){
-    if(!MP._firstHello)MP._firstHello=performance.now();
+    if(!MP._peerSeen){MP._peerSeen=performance.now();mpDbg('PEER HELLO RECEIVED');}
     mpEnsureHi();
     if(MP.role==='host'&&!MP.made){mpHostOffer();}
   }else if(o.t==='offer'){
@@ -2705,7 +2708,7 @@ function mqHandle(o){
   }
 }
 function mpHostOffer(){
-  MP.made=true;
+  MP.made=true;mpDbg('SENDING OFFER');
   mpStat('SETTING UP DIRECT P2P LINK…');
 const pc=MP.pc=mpMakePC();mpWatchPC(pc);
   const e=pc.createDataChannel('e',{ordered:true});
@@ -2729,7 +2732,7 @@ function mpHostApply(s,c){
 }
 function mpGuestAnswer(os,oc){
   if(!os){mpStat('BAD OFFER — RETRY');return;}
-  MP.made=true;
+  MP.made=true;mpDbg('RECEIVED OFFER, SENDING ANSWER');
   mpStat('HANDSHAKE…');
 const pc=MP.pc=mpMakePC();mpWatchPC(pc);
   pc.ondatachannel=function(ev){
@@ -2752,7 +2755,7 @@ function mpOpen(role){
   try{if(MP.mq&&MP.mq.ws){MP.mq.ws.onclose=null;MP.mq.ws.close();}}catch(e){}
 MP.mq=null;
   MP.role=role;MP.state='idle';MP.hiSent=false;MP.on=false;MP.made=false;MP.killsMp=0;MP.retries=0;
-  MP.relay=false;MP._firstHello=0;MP._rlast=0;
+  MP.relay=false;MP._peerSeen=0;MP._firstHello=0;MP._rlast=0;
   if(mpWatch){clearInterval(mpWatch);mpWatch=null;}
   if(MP.peer&&MP.peer.g){scene.remove(MP.peer.g);}MP.peer=null;
   mpPanel.classList.remove('hidden');
