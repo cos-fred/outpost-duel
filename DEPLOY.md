@@ -1,5 +1,14 @@
 # Outpost Duel — go online
 
+**This repo is already live (public):**
+- Repository: https://github.com/cos-fred/outpost-duel
+- Play now in any browser: **https://cos-fred.github.io/outpost-duel/**
+
+That URL is GitHub Pages (static). It serves the game to everyone and signaling
+auto-falls back to the free public MQTT broker, so two people anywhere can duel with
+STUN hole-punching. The sections below explain how to also run *your own* signaling
+server (needed for strict-NAT routers via TURN, and full platform independence).
+
 Everything needed to run the game on ONE server so two people on different
 networks can duel, is in this repo:
 
