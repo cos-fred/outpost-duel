@@ -1,0 +1,17 @@
+{
+  "name": "outpost-duel-online",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Outpost Duel — static + signaling server for peer-to-peer duels",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

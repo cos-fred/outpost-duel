@@ -1,0 +1,5 @@
+node_modules/
+server/node_modules/
+.DS_Store
+*.log
+sk_part_*.bin
