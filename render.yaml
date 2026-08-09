@@ -1,0 +1,21 @@
+# Render Blueprint — one-click import: repo -> live game + signaling server
+# Points at the Node app in /server, which also serves index.html.
+services:
+  - type: web
+    name: outpost-duel
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    plan: free
+    envVars:
+      - key: NODE_VERSION
+        value: "18"
+      # Optional: add a TURN relay for strict-NAT networks later, e.g.
+      # - key: TURN_URLS
+      #   value: "turn:your-host:3478,turns:your-host:5349?transport=tcp"
+      # - key: TURN_USER
+      #   value: "guest"
+      # - key: TURN_PASS
+      #   sync: false
